@@ -271,15 +271,15 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 
 		// Use a nonce to only allow a specific script to be run.
 		/*
-        content security policy of your webview to only allow scripts that have a specific nonce
-        create a content security policy meta tag so that only loading scripts with a nonce is allowed
-        As your extension grows you will likely want to add custom styles, fonts, and/or images to your webview. If you do, you will need to update the content security policy meta tag to explicity allow for these resources. E.g.
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; img-src ${webview.cspSource} https:; script-src 'nonce-${nonce}';">
+		  content security policy of your webview to only allow scripts that have a specific nonce
+		  create a content security policy meta tag so that only loading scripts with a nonce is allowed
+		  As your extension grows you will likely want to add custom styles, fonts, and/or images to your webview. If you do, you will need to update the content security policy meta tag to explicity allow for these resources. E.g.
+					 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; font-src ${webview.cspSource}; img-src ${webview.cspSource} https:; script-src 'nonce-${nonce}';">
 		- 'unsafe-inline' is required for styles due to vscode-webview-toolkit's dynamic style injection
 		- since we pass base64 images to the webview, we need to specify img-src ${webview.cspSource} data:;
 
-        in meta tag we add nonce attribute: A cryptographic nonce (only used once) to allow scripts. The server must generate a unique nonce value each time it transmits a policy. It is critical to provide a nonce that cannot be guessed as bypassing a resource's policy is otherwise trivial.
-        */
+		  in meta tag we add nonce attribute: A cryptographic nonce (only used once) to allow scripts. The server must generate a unique nonce value each time it transmits a policy. It is critical to provide a nonce that cannot be guessed as bypassing a resource's policy is otherwise trivial.
+		  */
 		const nonce = getNonce()
 
 		// Tip: Install the es6-string-html VS Code extension to enable code highlighting below
@@ -496,6 +496,52 @@ export class ClineProvider implements vscode.WebviewViewProvider {
 						}
 
 						break
+					case "confirmClearAllHistory": {
+						const confirm = await vscode.window.showWarningMessage(
+							message.text!,
+							{ modal: true },
+							"Yes",
+							"No"
+						);
+						if (confirm === "Yes") {
+							// Clear current task if exists
+							if (this.cline) {
+								await this.clearTask();
+							}
+
+							// Get all task IDs from history
+							const taskHistory = ((await this.getGlobalState("taskHistory")) as HistoryItem[] | undefined) || [];
+							const taskIds = taskHistory.map(item => item.id);
+
+							// Delete each task's files
+							const tasksDir = path.join(this.context.globalStorageUri.fsPath, "tasks");
+							try {
+								for (const id of taskIds) {
+									const taskDir = path.join(tasksDir, id);
+									if (await fileExistsAtPath(taskDir)) {
+										// Delete task files
+										const apiHistoryPath = path.join(taskDir, GlobalFileNames.apiConversationHistory);
+										const uiMessagesPath = path.join(taskDir, GlobalFileNames.uiMessages);
+										if (await fileExistsAtPath(apiHistoryPath)) {
+											await fs.unlink(apiHistoryPath);
+										}
+										if (await fileExistsAtPath(uiMessagesPath)) {
+											await fs.unlink(uiMessagesPath);
+										}
+										// Delete task directory
+										await fs.rmdir(taskDir);
+									}
+								}
+							} catch (error) {
+								console.error("Error deleting task files:", error);
+							}
+
+							// Clear history state
+							await this.updateGlobalState("taskHistory", []);
+							await this.postStateToWebview();
+						}
+						break;
+					}
 					case "openMcpSettings": {
 						const mcpSettingsFilePath = await this.mcpHub?.getMcpSettingsFilePath()
 						if (mcpSettingsFilePath) {
